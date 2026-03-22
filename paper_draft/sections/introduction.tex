@@ -1,0 +1,20 @@
+\section{Introduction}
+\label{sec:intro}
+
+Pretrained language models encode rich semantic knowledge in their embedding layers and residual streams. A natural question arises: if we systematically remap \emph{which} token IDs correspond to \emph{which} surface forms---applying a bijective permutation $\perm: \vocab \to \vocab$ to the input---can the model's internal representations adapt? After processing enough permuted text, does the residual stream converge to something resembling its normal state, ``modulo the shuffle''?
+
+This question matters for several reasons. First, it probes how deeply a transformer's ``understanding'' is tied to specific token identities versus distributional structure. Second, it has practical implications for adversarial robustness: if a simple bijective shuffle can destroy a model's predictions even though the statistical structure of the input is preserved, this reveals a fundamental rigidity in how transformers process language. Third, it informs the growing literature on cipher-based jailbreaks~\citep{yuan2023gpt4cipher}, where attackers encode harmful prompts via substitution ciphers to bypass safety filters.
+
+{\bf What is missing in existing work?} Recent work by \citet{fang2025iclciphers} demonstrates that models \emph{can} learn bijective ciphers from in-context demonstrations, with the logit lens showing progressive cipher decoding at deeper layers. However, their analysis focuses on the \emph{with-demonstrations} setting and measures only top-token predictions, not the full geometry of the residual stream. No prior work has systematically measured how the residual stream's \emph{structure}---its direction, magnitude, and representational content---changes under bijective token permutation in the zero-shot setting, or whether there exists a linear transformation that maps ciphered hidden states back to clean ones.
+
+We address this gap directly. We extract residual stream activations at every layer of \gpttwo (12 layers) and \pythia (24 layers) under three conditions: clean text, bijectively ciphered text, and random token replacement. We compare these using cosine similarity, a permutation-adjustment matrix, the logit lens, and centered kernel alignment (CKA). Our key innovation is the \emph{permutation-adjusted similarity} test: if the residual stream is truly ``normal modulo the shuffle,'' then transforming ciphered hidden states by the cipher's inverse in embedding space should dramatically increase similarity to clean states.
+
+{\bf Our results are clear}: the model does not recover. The permutation adjustment makes similarity \emph{worse}, not better. The high cosine similarity observed at later layers in \gpttwo (0.873 for full shuffle) is an architectural artifact---\layernorm drives \emph{all} inputs, including random tokens (0.858), toward similar representations. The logit lens confirms the model never predicts cipher-consistent next tokens at any layer. In \pythia, which exhibits weaker architectural convergence, ciphered representations sit between clean and random, suggesting partial distributional extraction without genuine cipher decoding.
+
+We make the following contributions:
+\begin{itemize}[leftmargin=*,itemsep=0pt,topsep=0pt]
+    \item We conduct the first systematic analysis of residual stream geometry under bijective token permutation, testing whether pretrained transformers can internally remap a cipher without demonstrations.
+    \item We introduce a permutation-adjustment test that directly evaluates the ``normal modulo the shuffle'' hypothesis, finding it decisively refuted.
+    \item We identify \layernorm-driven architectural convergence as a confound that inflates cosine similarity between \emph{any} two inputs, cautioning against using raw cosine similarity as a measure of representational understanding.
+    \item We validate our findings across two model architectures (\gpttwo and \pythia), four shuffle rates, and five complementary analysis methods.
+\end{itemize}

@@ -1,0 +1,8 @@
+\section{Conclusion}
+\label{sec:conclusion}
+
+We have shown that a pretrained transformer's residual stream does \emph{not} converge to ``normal modulo the shuffle'' when fed bijectively permuted tokens without demonstrations. Across \gpttwo and \pythia, four shuffle rates, and five complementary analysis methods, the evidence is consistent: the embedding lookup creates a persistent, non-linear distortion that the forward pass cannot undo. The permutation-adjustment test---our most direct evaluation of the hypothesis---makes similarity \emph{worse}, not better. The logit lens confirms the model never predicts the cipher-consistent next token. And the apparent representational similarity at later layers is an architectural artifact of \layernorm convergence, not genuine cipher decoding.
+
+The key takeaway is that \textbf{token identity matters}: a transformer's semantic processing is fundamentally tied to the specific embeddings it was trained with. A bijective shuffle preserves distributional structure but destroys semantic content, and the model cannot recover from this destruction through forward-pass processing alone.
+
+Future work should extend this analysis to the with-demonstrations setting to characterize the boundary between cipher failure and cipher success, test larger models where in-context learning is stronger, and apply sparse autoencoders to identify which features fire differently under clean versus ciphered input. Understanding \emph{how} models learn ciphers from demonstrations---and why they cannot do so from ciphered text alone---will deepen our understanding of the mechanisms underlying in-context learning.

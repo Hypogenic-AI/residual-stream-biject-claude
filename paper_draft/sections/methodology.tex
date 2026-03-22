@@ -1,0 +1,53 @@
+\section{Methodology}
+\label{sec:method}
+
+\subsection{Problem Formulation}
+\label{sec:formulation}
+
+Let $\gM$ be a pretrained autoregressive transformer with vocabulary $\vocab$ of size $|\vocab|$ and embedding matrix $\embmat \in \R^{|\vocab| \times d}$, where $d$ is the model dimension. We define a bijective token permutation $\perm: \vocab \to \vocab$ such that each token ID is mapped to exactly one other token ID. Given an input sequence $\vx = (x_1, \ldots, x_n)$ with $x_i \in \vocab$, the ciphered sequence is $\perm(\vx) = (\perm(x_1), \ldots, \perm(x_n))$.
+
+Let $\vh_\ell(\vx) \in \R^{n \times d}$ denote the residual stream activations at layer $\ell$ when the model processes input $\vx$. Our central question is whether there exists a transformation $\permmat$ (related to $\perm$) such that:
+\begin{equation}
+\label{eq:hypothesis}
+\permmat \cdot \vh_\ell(\perm(\vx)) \approx \vh_\ell(\vx) \quad \text{for large } \ell.
+\end{equation}
+If \eqref{eq:hypothesis} holds, the residual stream is ``normal modulo the shuffle''---the cipher's effect can be undone by a linear transformation in hidden space.
+
+\subsection{Bijective Cipher Construction}
+\label{sec:cipher}
+
+We construct $\perm$ as a random bijective permutation with Zipfian frequency matching. Rather than permuting tokens uniformly at random, we partition $\vocab$ into logarithmic frequency bins based on each token's unigram frequency in a reference corpus and permute only within bins. This ensures that high-frequency tokens map to other high-frequency tokens, preserving the distributional statistics of the ciphered text.
+
+We vary the \emph{shuffle rate} $\shufflerate \in \{0.3, 0.5, 0.7, 1.0\}$, which controls the fraction of the vocabulary that is permuted. At $\shufflerate = 0.3$, 30\% of tokens are shuffled while 70\% retain their original identity; at $\shufflerate = 1.0$, the entire vocabulary is permuted. All experiments use random seed 42. Bijectivity is verified by asserting that $\invperm \circ \perm$ equals the identity.
+
+\subsection{Models and Data}
+\label{sec:models}
+
+We use two pretrained autoregressive transformers accessed via TransformerLens~\citep{nanda2022transformerlens}:
+
+\begin{itemize}[leftmargin=*,itemsep=0pt,topsep=0pt]
+    \item \gpttwo: 12 layers, $d = 768$, $|\vocab| = 50{,}257$. Well-understood architecture with strong \layernorm effects.
+    \item \pythia: 24 layers, $d = 1024$, $|\vocab| = 50{,}304$. Provides cross-architecture validation with weaker \layernorm convergence.
+\end{itemize}
+
+Our dataset consists of 20--30 diverse English text samples of 2--4 sentences each, covering science, economics, literature, technology, and daily life. Texts are selected to span a range of vocabulary and syntactic structures. All experiments run on a single NVIDIA RTX A6000 (49\,GB).
+
+\subsection{Analysis Methods}
+\label{sec:analysis}
+
+We compare residual stream activations across three conditions: (i) \textbf{clean}---original text, (ii) \textbf{cipher}---bijectively permuted text at various shuffle rates, and (iii) \textbf{random}---non-bijective random token replacement (lower bound).
+
+\para{Cosine similarity.} We compute the cosine similarity between position-averaged hidden states $\bar{\vh}_\ell^{\text{clean}}$ and $\bar{\vh}_\ell^{\text{cipher}}$ at each layer $\ell$:
+\begin{equation}
+\cossim(\bar{\vh}_\ell^{\text{clean}}, \bar{\vh}_\ell^{\text{cipher}}) = \frac{\bar{\vh}_\ell^{\text{clean}} \cdot \bar{\vh}_\ell^{\text{cipher}}}{\|\bar{\vh}_\ell^{\text{clean}}\| \, \|\bar{\vh}_\ell^{\text{cipher}}\|}.
+\end{equation}
+
+\para{Permutation-adjusted similarity.} To test \eqref{eq:hypothesis}, we compute a transformation matrix $\permmat$ as the least-squares solution to $\embmat_{\text{perm}} \cdot \permmat \approx \embmat$, where $\embmat_{\text{perm}}$ is the embedding matrix with rows permuted by $\perm$. We then measure $\cossim(\permmat \cdot \bar{\vh}_\ell^{\text{cipher}}, \bar{\vh}_\ell^{\text{clean}})$. If the cipher's effect is linear and invertible, this should substantially exceed the raw similarity.
+
+\para{Logit lens.} Following \citet{nostalgebraist2020logitlens}, we project each layer's hidden states through the model's unembedding matrix to obtain vocabulary distributions. We track the mean rank of the ``correct'' next token under both the cipher mapping and the original mapping.
+
+\para{Inter-text similarity control.} To control for architectural convergence, we compute cosine similarity between position-averaged hidden states of \emph{different clean texts}. If this baseline is already high, then high clean-vs-cipher similarity may reflect architectural properties rather than cipher decoding.
+
+\para{Centered kernel alignment (CKA).} For \pythia, we additionally compute CKA~\citep{kornblith2019similarity} between clean and ciphered representation matrices, which is robust to rotation and isotropic scaling.
+
+\para{Attention entropy.} We measure the Shannon entropy of attention distributions across heads and positions to assess whether the cipher disrupts the model's attention patterns.

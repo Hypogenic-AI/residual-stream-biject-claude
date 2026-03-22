@@ -1,0 +1,827 @@
+You are an academic paper writer. Generate a complete NEURIPS style paper
+based on the experiment results provided.
+
+════════════════════════════════════════════════════════════════════════════════
+                         IMPORTANT: BEFORE YOU START
+════════════════════════════════════════════════════════════════════════════════
+
+Before writing any content, you MUST complete these steps:
+
+1. READ THE SKILL: Review the paper-writer skill at .claude/skills/paper-writer/SKILL.md
+2. READ THE STYLE GUIDE: Study templates/paper_writing/lab_style_guide.md carefully
+3. REVIEW EXAMPLES: Browse paper_examples/ for formatting and language patterns:
+   - Look at sections/1.introduction.tex for language style
+   - Look at tables/*.tex for table formatting
+   - Look at commands/*.tex for macro usage
+4. VERIFY COMMAND TEMPLATES: Command templates (math.tex, general.tex, macros.tex) are pre-copied to paper_draft/commands/
+
+CRITICAL: Reference example papers for FORMATTING and LANGUAGE STYLE only.
+Do NOT copy content, phrasing, or narrative structure from the example papers.
+The examples are in a different research domain - focus only on presentation style.
+
+════════════════════════════════════════════════════════════════════════════════
+                            EXPERIMENT REPORT
+════════════════════════════════════════════════════════════════════════════════
+
+# The Residual Stream After Bijective Token Transformation
+
+## 1. Executive Summary
+
+We investigate whether a pretrained transformer&#39;s residual stream can adapt to a bijective token permutation — a shuffling of which token IDs represent which surface forms. Our experiments on GPT-2 Small and Pythia-410M reveal that **the model does not recover &#34;modulo the shuffle.&#34;** While cosine similarity between clean and ciphered hidden states increases at later layers, this is largely an architectural artifact: different clean texts also show &gt;96% cosine similarity with each other in GPT-2 due to LayerNorm convergence. The logit lens confirms the model never learns to predict cipher-consistent next tokens. Pythia-410M, with weaker architectural convergence, shows the cipher reduces similarity below clean but stays above random, suggesting partial structural extraction without genuine cipher decoding.
+
+**Bottom line:** The embedding layer creates a persistent distortion that the transformer cannot undo through forward-pass processing alone. The model&#39;s residual stream does *not* converge to &#34;normal modulo the shuffle.&#34;
+
+## 2. Goal
+
+**Hypothesis:** If a bijective function f: V → V is applied to shuffle token-surface form mappings and the transformed text is fed into a pretrained language model, the model&#39;s residual stream will eventually resemble its normal state modulo the shuffle, because the transformer can internally learn to remap the cipher.
+
+**Why this matters:** Understanding how pretrained LLMs handle systematic input perturbations reveals (1) how deeply semantic understanding is tied to specific token identities vs. distributional structure, (2) the robustness of internal representations to adversarial token remapping, and (3) limits of in-context adaptation in frozen models.
+
+## 3. Data Construction
+
+### Dataset
+We used 20 diverse English text samples (2-4 sentences each) covering topics including science, economics, literature, technology, and daily life. Texts were selected to cover a range of vocabulary and syntactic structures.
+
+### Bijective Cipher Construction
+- **Method:** Random bijective permutation f: V → V with Zipfian frequency matching (tokens shuffled within log-frequency bins to preserve distributional statistics)
+- **Shuffle rates tested:** 0.3, 0.5, 0.7, 1.0 (fraction of vocabulary permuted)
+- **Seed:** 42 for reproducibility
+- **Verification:** Bijectivity confirmed via assertion (forward ∘ inverse = identity)
+
+### Baselines
+1. **Clean text:** Original, unmodified tokens (upper bound)
+2. **Bijective cipher:** Tokens permuted by f at various rates
+3. **Random tokens:** Non-bijective random replacement (lower bound)
+
+## 4. Experiment Description
+
+### Methodology
+
+#### High-Level Approach
+We extract residual stream activations at every layer of a pretrained transformer for three conditions (clean, ciphered, random) and compare them using:
+1. **Cosine similarity** — direct comparison of hidden state directions
+2. **Permutation-adjusted similarity** — transform ciphered states by the cipher&#39;s inverse in embedding space before comparing
+3. **Logit lens** — decode intermediate hidden states to vocabulary predictions
+4. **Inter-text similarity** — control for architectural convergence artifacts
+5. **CKA** — representation similarity robust to rotation/scaling (Pythia only)
+
+#### Why This Method?
+The permutation-adjusted similarity is the key test: if the residual stream IS &#34;normal modulo the shuffle,&#34; then undoing the shuffle in embedding space should dramatically increase similarity. If it doesn&#39;t, the model has not internally remapped the cipher.
+
+### Implementation Details
+
+#### Tools and Libraries
+| Library | Version | Purpose |
+|---------|---------|---------|
+| PyTorch | 2.10.0+cu128 | Tensor operations, GPU |
+| TransformerLens | 2.15.4 | Hooked transformer with activation cache |
+| NumPy | (latest) | Numerical computation |
+| SciPy | (latest) | Statistical tests |
+| scikit-learn | (latest) | Linear probes |
+| Matplotlib | (latest) | Visualization |
+
+#### Models
+| Model | Layers | d_model | Vocab | Purpose |
+|-------|--------|---------|-------|---------|
+| GPT-2 Small | 12 | 768 | 50257 | Primary analysis, well-understood |
+| Pythia-410M | 24 | 1024 | 50304 | Cross-model validation, less LN convergence |
+
+#### Hardware
+- NVIDIA RTX A6000 (49 GB VRAM)
+- CUDA 12.8
+
+### Experimental Protocol
+- **Random seed:** 42
+- **Number of text samples:** 30 (GPT-2), 20 (Pythia)
+- **Execution time:** 2 min (GPT-2), 1 min (Pythia), &lt;1 min (deeper analysis)
+
+### Permutation-Adjustment Matrix
+To test the &#34;normal modulo shuffle&#34; hypothesis, we compute a transformation matrix T such that for ciphered hidden states h_cipher, T·h_cipher ≈ h_clean. T is obtained as the least-squares solution to E_perm · T ≈ E, where E is the embedding matrix and E_perm is the permuted embedding matrix. This only works if the cipher&#39;s effect propagates linearly through the network — a strong assumption we test empirically.
+
+## 5. Results
+
+### Experiment 1: Cosine Similarity Across Layers (GPT-2 Small)
+
+| Condition | Shuffle Rate | Embedding Layer | Middle Layer (6) | Final Layer (12) |
+|-----------|-------------|----------------|-----------------|-----------------|
+| Raw (clean vs cipher) | 0.3 | 0.927 | 0.849 | 0.942 |
+| Raw (clean vs cipher) | 0.5 | 0.873 | 0.756 | 0.912 |
+| Raw (clean vs cipher) | 0.7 | 0.822 | 0.687 | 0.896 |
+| Raw (clean vs cipher) | 1.0 | 0.743 | 0.579 | 0.873 |
+| Adjusted | 1.0 | 0.256 | 0.068 | 0.417 |
+| Random baseline | — | 0.637 | 0.526 | 0.858 |
+
+**Key finding:** Raw cosine similarity INCREASES from middle to final layer, but the **random baseline also reaches 0.858** at the final layer. The permutation adjustment makes things WORSE, not better.
+
+### Experiment 2: Architecture Convergence Control (GPT-2)
+
+Cosine similarity between position-averaged hidden states of **different clean texts**:
+
+| Layer | Inter-text Similarity |
+|-------|----------------------|
+| 0 | 0.963 |
+| 3 | 0.996 |
+| 6 | 0.994 |
+| 9 | 0.986 |
+| 12 | 0.963 |
+
+**Key finding:** Different clean texts already have &gt;96% cosine similarity at every layer. The high clean-vs-cipher similarity in GPT-2 is an **architectural artifact** of LayerNorm forcing all representations toward similar directions.
+
+### Experiment 3: Pythia-410M Cross-Validation
+
+| Condition | Shuffle Rate | Embedding | Final Layer | CKA (Final) |
+|-----------|-------------|-----------|-------------|-------------|
+| Raw | 0.3 | 0.766 | 0.688 | 0.603 |
+| Raw | 0.5 | 0.581 | 0.565 | 0.509 |
+| Raw | 1.0 | 0.146 | 0.391 | 0.300 |
+| Random | — | — | 0.295 | — |
+
+**Key finding:** Pythia shows clearer separation. The cipher result (0.391) is above random (0.295), suggesting the model extracts some distributional structure from ciphered text. But similarity DECREASES from embedding to final layer for low shuffle rates, contrary to the &#34;recovery&#34; hypothesis.
+
+### Experiment 4: Logit Lens Analysis (GPT-2)
+
+Mean rank of the &#34;correct&#34; next token at the final layer:
+
+| Condition | Token Being Ranked | Mean Rank |
+|-----------|--------------------|-----------|
+| Clean | Correct next token | 166 |
+| Cipher (r=0.3) | Cipher-correct token | 5,909 |
+| Cipher (r=0.5) | Cipher-correct token | 7,787 |
+| Cipher (r=1.0) | Cipher-correct token | 11,542 |
+| Cipher (r=1.0) | Original token | 11,607 |
+
+**Key finding:** The model does NOT decode the cipher. The &#34;correct&#34; next token under the cipher mapping has rank ~6,000–12,000 (out of 50,257), essentially random. The model also doesn&#39;t predict the original (un-ciphered) next token — both are equally lost.
+
+### Experiment 5: Attention Pattern Analysis
+
+Attention entropy (mean across heads and positions):
+
+| Layer | Clean Entropy | Cipher Entropy |
+|-------|--------------|----------------|
+| 0 | 1.038 | 1.054 |
+| 3 | 0.877 | 0.847 |
+| 6 | 0.704 | 0.669 |
+| 9 | 0.478 | 0.529 |
+| 11 | 0.710 | 0.811 |
+
+**Key finding:** Attention patterns are slightly more diffuse at later layers under cipher (0.811 vs 0.710 at layer 11), suggesting the model is less certain about which tokens to attend to, but the difference is small — the attention mechanism is not dramatically disrupted.
+
+### Statistical Tests
+
+For the comparison of raw vs. random similarity at later layers (6–12):
+
+| Shuffle Rate | Raw Mean | Random Mean | t-statistic | p-value |
+|-------------|----------|-------------|-------------|---------|
+| 0.3 | 0.926 | 0.800 | 7.41 | 0.0003 |
+| 0.5 | 0.898 | 0.800 | 7.02 | 0.0004 |
+| 0.7 | 0.876 | 0.799 | 6.92 | 0.0004 |
+| 1.0 | 0.847 | 0.800 | 7.48 | 0.0003 |
+
+The cipher consistently produces higher similarity than random (p &lt; 0.001), but the effect size is small relative to the architectural convergence baseline.
+
+## 6. Result Analysis
+
+### Key Findings
+
+1. **The model does NOT recover &#34;modulo the shuffle.&#34;** The permutation-adjustment matrix makes similarity *worse*, not better. The cipher&#39;s effect is not a simple linear transformation in hidden space.
+
+2. **Apparent convergence is an architectural artifact.** In GPT-2, LayerNorm drives all inputs toward similar representations (inter-text cosine sim &gt; 0.96). The high clean-vs-cipher similarity is not cipher decoding — it&#39;s a property of the architecture.
+
+3. **Cipher stays above random, but below clean.** In Pythia-410M (less convergence), the cipher produces representations 30% above random but 30% below clean at the final layer (full shuffle). The model extracts some structure from ciphered text (distributional patterns survive the bijection) but doesn&#39;t decode the cipher.
+
+4. **The logit lens confirms no cipher decoding.** At no layer does the model predict the cipher-consistent next token — the rank is essentially random for the ciphered condition.
+
+5. **Attention patterns are only mildly affected.** The attention mechanism operates similarly on clean and ciphered text, with slightly higher entropy under cipher at later layers.
+
+### Why the Model Doesn&#39;t Recover
+
+The fundamental issue is that the embedding layer is a **lookup table**, not a learned transformation. When token ID 42 maps to embedding E[42] in clean text, and after the cipher it maps to E[f(42)] instead, the model receives completely wrong semantic embeddings. Unlike a learned linear transformation (which could be inverted by later layers), a random permutation of 50,000 embeddings creates a highly non-linear distortion that the 12–24 layers of processing cannot undo.
+
+The model&#39;s later layers do produce *similar-looking* hidden states for any input (clean, cipher, or random), but this is because:
+- LayerNorm constrains the norm and centering of representations
+- Attention patterns are dominated by positional structure (nearby tokens)
+- The residual stream accumulates a &#34;default&#34; pattern through the residual connections
+
+This is superficial similarity, not genuine understanding.
+
+### Surprises
+
+The most surprising finding was that **permutation adjustment made things worse**. We expected that if the residual stream was &#34;normal modulo the shuffle,&#34; the adjustment would significantly increase similarity. Instead, the least-squares mapping T introduced additional noise, confirming that the cipher&#39;s effect propagates non-linearly through attention and MLP layers.
+
+Also surprising: the random baseline in GPT-2 reached 0.858 cosine similarity at the final layer, almost as high as the cipher (0.873). This was fully explained by the inter-text convergence analysis.
+
+### Limitations
+
+1. **No in-context demonstrations.** We tested zero-shot cipher processing. The ICL Ciphers paper (Fang et al., 2025) shows models CAN learn ciphers from demonstrations — our results apply to the no-demonstration setting.
+2. **Short sequences.** Our texts are ~30 tokens. Longer sequences might provide more signal, though our context-length analysis showed no recovery trend within 512 tokens.
+3. **Only autoregressive models.** Bidirectional models might behave differently.
+4. **Position-averaged analysis.** Per-position analysis showed no clear recovery trend, but a more fine-grained analysis might reveal local patterns.
+5. **Two models.** Results may vary with model size (the ICL Ciphers paper found larger models recover more).
+
+## 7. Conclusions
+
+### Summary
+A pretrained transformer&#39;s residual stream does **not** converge to &#34;normal modulo the shuffle&#34; when fed bijectively-permuted tokens without demonstrations. The model&#39;s representations at later layers appear superficially similar across all inputs (clean, cipher, and random) due to architectural convergence (LayerNorm), but this is not genuine cipher decoding. The logit lens confirms the model never predicts the correct next token under the cipher mapping.
+
+### Implications
+- **For adversarial robustness:** Simple bijective token shuffling is sufficient to completely destroy a model&#39;s next-token prediction ability, despite the residual stream &#34;looking normal&#34; at a surface level.
+- **For cipher jailbreaks:** The model needs explicit in-context demonstrations to learn a cipher mapping — it cannot induce the mapping from ciphered text alone.
+- **For mechanistic interpretability:** Cosine similarity of residual streams can be misleading as a measure of &#34;understanding&#34; — architectural convergence (LayerNorm) creates high similarity between any two inputs.
+- **For the original question:** &#34;After a lot of text, will the residual stream look kind of normal, modulo the shuffle?&#34; — It looks *superficially* normal at later layers, but this is not because the model recovered. The model never recovers because the embedding lookup creates a non-linear distortion that cannot be inverted by the forward pass.
+
+### Confidence in Findings
+**High confidence** in the main finding (no recovery modulo shuffle). The result is consistent across two models, four shuffle rates, and multiple analysis methods. The architecture-convergence control experiment provides a clear mechanistic explanation.
+
+## 8. Next Steps
+
+### Immediate Follow-ups
+1. **Add in-context demonstrations:** Provide (ciphered → clean) token mappings in context and measure if the residual stream THEN converges modulo the shuffle (following ICL Ciphers methodology).
+2. **Test larger models:** Llama-3.1-8B/70B may show different behavior due to greater capacity for in-context learning.
+3. **Fine-grained position analysis:** Track per-token recovery as a function of how many times each token has appeared in context.
+
+### Alternative Approaches
+- Use SAEs (Sparse Autoencoders) to compare which features fire for clean vs. ciphered text
+- Apply ACDC/EAP circuit discovery to identify what circuits activate under cipher
+- Test with character-level or byte-level models where the &#34;embedding lookup&#34; step is simpler
+
+### Open Questions
+- How many in-context demonstrations are needed for genuine residual-stream recovery?
+- Is there a model size threshold below which recovery is impossible and above which it emerges?
+- Can a small amount of fine-tuning on ciphered text enable recovery in a way the forward pass alone cannot?
+
+## References
+
+1. Fang et al. (2025). &#34;ICL CIPHERS: Quantifying Learning in In-Context Learning via Substitution Ciphers.&#34; arXiv:2504.19395.
+2. Lawson et al. (2025). &#34;Residual Stream Analysis with Multi-Layer SAEs.&#34; arXiv:2409.04185.
+3. Belrose et al. (2023). &#34;Eliciting Latent Predictions from Transformers with the Tuned Lens.&#34; arXiv:2303.08112.
+4. Zhao et al. (2024). &#34;Analysing the Residual Stream Under Knowledge Conflicts.&#34; arXiv:2410.16090.
+5. Yuan et al. (2023). &#34;GPT-4 Is Too Smart To Be Safe: Stealthy Chat with LLMs via Cipher.&#34; arXiv:2308.06463.
+6. Sinha et al. (2021). &#34;Masked Language Modeling and the Distributional Hypothesis: Order Word Matters Pre-training for Little.&#34; arXiv:2104.06644.
+
+## Appendix: Generated Plots
+
+| Plot | File | Description |
+|------|------|-------------|
+| Cosine similarity across layers | `results/plots/cosine_similarity_layers.png` | Raw and adjusted similarity for all shuffle rates |
+| Logit lens ranks | `results/plots/logit_lens_ranks.png` | Token rank at each layer for clean and cipher |
+| Position-dependent similarity | `results/plots/position_dependent_similarity.png` | Per-token-position similarity |
+| Summary comparison | `results/plots/summary_comparison.png` | Bar chart of final-layer similarities |
+| Context length recovery | `results/plots/context_length_recovery.png` | Does more context help? |
+| Deeper analysis | `results/plots/deeper_analysis.png` | Norms, inter-text sim, probes, attention |
+| Pythia analysis | `results/plots/pythia_analysis.png` | Pythia-410M raw, adjusted, and CKA |
+
+
+════════════════════════════════════════════════════════════════════════════════
+                            RESEARCH PLAN
+════════════════════════════════════════════════════════════════════════════════
+
+# Research Plan: The Residual Stream After Bijective Token Transformation
+
+## Motivation &amp; Novelty Assessment
+
+### Why This Research Matters
+Pretrained LLMs encode rich semantic knowledge in their embedding layers and residual streams. Understanding whether models can adapt their internal representations to systematic token remappings (bijective ciphers) reveals how deeply the model&#39;s &#34;understanding&#34; is tied to specific token identities versus distributional structure. This has implications for adversarial robustness, cipher-based jailbreaks, and fundamental understanding of how transformers process language.
+
+### Gap in Existing Work
+The ICL Ciphers paper (Fang et al., 2025) shows that models *can* perform tasks under bijective ciphers better than non-bijective ones, and basic logit lens probing shows the cipher is learned in deeper layers. However, no work has systematically measured:
+1. How the residual stream **structure** (not just top-token predictions) changes under bijective transformation across sequence positions
+2. Whether there is a convergence point where ciphered representations become linearly similar to clean ones (modulo the permutation)
+3. How this varies across layers, context lengths, and model sizes
+
+### Our Novel Contribution
+We directly measure residual stream activations under bijective token permutation, testing whether the model&#39;s hidden states converge to a &#34;permuted normal&#34; state. Specifically, we test if there exists a linear transformation (related to the cipher&#39;s permutation matrix in embedding space) that maps ciphered hidden states back to clean ones, and how this mapping quality evolves across layers and token positions.
+
+### Experiment Justification
+- **Experiment 1 (Residual Stream Similarity)**: Measure cosine similarity between clean and ciphered hidden states at each layer and position — directly tests whether representations converge.
+- **Experiment 2 (Logit Lens Analysis)**: Track which token the model &#34;thinks about&#34; at each layer — tests whether the model decodes the cipher progressively.
+- **Experiment 3 (Permutation-Adjusted Similarity)**: Apply the cipher&#39;s permutation in embedding space to see if ciphered states are &#34;normal modulo the shuffle&#34; — the core question.
+- **Experiment 4 (Context Length Effect)**: Vary how much ciphered text the model has seen to test the &#34;recovery&#34; hypothesis.
+
+## Research Question
+Given a bijective token permutation f: V→V applied to input text, does a pretrained transformer&#39;s residual stream eventually represent the permuted text in a way that is equivalent to normal processing modulo the permutation? Or does the model fail to recover because embeddings don&#39;t get properly remapped?
+
+## Hypothesis Decomposition
+- **H1**: Residual stream cosine similarity between clean and ciphered text will be low at early layers but increase at later layers (partial recovery).
+- **H2**: When we account for the permutation (by applying the inverse permutation in embedding space), the similarity will be substantially higher — the model&#39;s state is &#34;normal modulo the shuffle.&#34;
+- **H3**: More context (longer sequences) will improve recovery, as the model has more signal to attune to the cipher.
+- **H4**: Logit lens will show the model progressively shifting from predicting &#34;wrong&#34; (original) tokens to predicting cipher-consistent tokens at deeper layers.
+
+## Proposed Methodology
+
+### Approach
+Use TransformerLens to extract residual stream activations from GPT-2 Small and Pythia-410M. Compare activations between:
+- **Clean text**: Original text
+- **Ciphered text**: Same text with bijective token permutation applied
+- **Permutation-adjusted**: Ciphered hidden states transformed by the inverse permutation matrix in embedding space
+
+### Models
+- GPT-2 Small (12 layers, 768 dims, well-understood)
+- Pythia-410M (24 layers, 1024 dims, has tuned lens/SAE support)
+
+### Experimental Steps
+1. Implement bijective token cipher with Zipfian frequency matching
+2. Prepare text samples from The Pile / WikiText
+3. Extract residual stream activations for clean and ciphered text
+4. Compute layer-wise cosine similarity (clean vs ciphered)
+5. Compute permutation-adjusted similarity (key metric)
+6. Apply logit lens to track prediction evolution
+7. Vary context length and measure recovery
+8. Statistical analysis across multiple texts
+
+### Baselines
+- Clean text (upper bound on &#34;normal&#34; residual stream)
+- Random token replacement (non-bijective, lower bound)
+- Identity permutation (sanity check)
+
+### Evaluation Metrics
+- Cosine similarity between clean and ciphered hidden states per layer
+- Permutation-adjusted cosine similarity (applying P^{-1} in embedding space)
+- Logit lens top-1 accuracy (does model predict correct next token under cipher?)
+- Rank of correct token at each layer via logit lens
+- Centered Kernel Alignment (CKA) between clean and ciphered representations
+
+### Statistical Analysis Plan
+- Bootstrap confidence intervals (n=100+ text samples)
+- Paired t-tests for layer-wise comparisons
+- Effect sizes (Cohen&#39;s d) for similarity differences
+
+## Expected Outcomes
+- If H2 is supported: the residual stream IS normal modulo the shuffle — the model learns to remap internally
+- If H2 is refuted: the embedding layer creates a persistent distortion that the model cannot overcome, even with context
+
+## Timeline
+- Phase 1 (Planning): 15 min ✓
+- Phase 2 (Setup): 15 min
+- Phase 3 (Implementation): 60 min
+- Phase 4 (Experiments): 60 min
+- Phase 5 (Analysis): 30 min
+- Phase 6 (Documentation): 20 min
+
+## Potential Challenges
+- GPU memory for large models — mitigate with smaller batch sizes
+- Permutation matrix in embedding space may not be well-defined if embeddings aren&#39;t orthogonal — use pseudo-inverse
+- Context window limits — use sequences of ~512 tokens
+
+## Success Criteria
+- Clear evidence for or against whether the residual stream converges to &#34;normal modulo permutation&#34;
+- Statistical significance (p &lt; 0.05) on key comparisons
+- Reproducible results across multiple text samples
+
+
+════════════════════════════════════════════════════════════════════════════════
+                          LITERATURE REVIEW
+════════════════════════════════════════════════════════════════════════════════
+
+# Literature Review: The Residual Stream After Bijective Token Transformation
+
+## Research Area Overview
+
+This literature review covers the intersection of three research areas relevant to studying how pretrained language models handle bijective token-surface form remappings and whether their residual stream adapts:
+
+1. **Residual stream analysis and mechanistic interpretability** — understanding how transformers process and refine predictions layer-by-layer through the residual stream
+2. **Token permutation, word order, and cipher robustness** — how LMs respond when input tokens are shuffled, permuted, or encoded via substitution ciphers
+3. **In-context learning of new mappings** — whether models can learn arbitrary bijective mappings from demonstrations alone
+
+## Key Papers
+
+### 1. ICL CIPHERS: Quantifying &#34;Learning&#34; in In-Context Learning via Substitution Ciphers
+- **Authors**: Zhouxiang Fang, Aayush Mishra, Muhan Gao, Anqi Liu, Daniel Khashabi (Johns Hopkins)
+- **Year**: 2025
+- **Source**: arXiv:2504.19395
+- **Key Contribution**: Introduces a rigorous framework to distinguish task learning from task retrieval in ICL using bijective vs. non-bijective substitution ciphers
+- **Methodology**: Applies random bijective token-level substitution ciphers to NLP task inputs and compares model performance against a non-bijective (random noise) baseline. The gap measures genuine &#34;task learning.&#34; Uses Zipfian frequency-matched shuffling and priority sampling of demonstrations.
+- **Datasets Used**: SST-2, Amazon Reviews, HellaSwag, WinoGrande
+- **Models**: Llama-3.1-8B/70B, Qwen2.5-7B, OLMo-7B, Gemma-2-9b
+- **Results**: Bijective ciphers consistently outperform non-bijective across all models (e.g., +4.8% on SST-2, +7.6% on Amazon for Llama-3.1-8B). The gap widens with more demonstrations (from +4.7% at 5-shot to +10.1% at 50-shot). Peak gap at moderate shuffle rates (r ∈ 0.4–0.6).
+- **Residual Stream Finding**: Using Logit Lens probing, the authors show that in deeper layers under bijective ciphers, the model&#39;s residual stream increasingly assigns higher probability to the substituted token over the original — evidence the model internally learns the cipher mapping layer-by-layer. No such trend under non-bijective ciphers.
+- **Relevance**: **Directly addresses our research hypothesis.** Demonstrates that bijective token transformations are learnable in-context, and the residual stream encodes the cipher.
+
+### 2. Residual Stream Analysis with Multi-Layer SAEs
+- **Authors**: Tim Lawson, Lucy Farnik, Conor Houghton, Laurence Aitchison (Bristol)
+- **Year**: 2025 (ICLR)
+- **Source**: arXiv:2409.04185
+- **Key Contribution**: Introduces Multi-Layer SAE (MLSAE) — a single sparse autoencoder trained across all transformer layers to study cross-layer information flow in the residual stream
+- **Methodology**: Trains TopK sparse autoencoders on residual stream activations from all layers simultaneously. Analyzes the distribution of latent activations over layers using variance decomposition. Compares with and without tuned-lens basis transformations.
+- **Datasets Used**: The Pile (10M tokens for evaluation)
+- **Models**: Pythia suite (70M–2.8B), GPT-2 Small, Gemma 2 2B, Llama 3.2 3B
+- **Results**: Individual MLSAE latents fire at a single layer for a given token (low within-token variance) but are active at different layers across tokens (high aggregate variance — ~100x larger). Larger models show more cross-layer activity. Tuned-lens normalization doesn&#39;t change qualitative findings.
+- **Code Available**: Yes — https://github.com/tim-lawson/mlsae
+- **Relevance**: Provides the methodology (MLSAE) to study how a bijective transformation affects feature representations across all layers simultaneously.
+
+### 3. Eliciting Latent Predictions from Transformers with the Tuned Lens
+- **Authors**: Nora Belrose, Igor Ostrovsky, Lev McKinney et al. (EleutherAI)
+- **Year**: 2023
+- **Source**: arXiv:2303.08112
+- **Key Contribution**: The tuned lens — trained affine probes per layer that decode residual stream states into vocabulary distributions, more reliably than the logit lens
+- **Methodology**: Trains per-layer affine transformations to project hidden states into the final layer&#39;s representation space. Uses distillation loss. Introduces Causal Basis Extraction (CBE) to find directions most influential on predictions.
+- **Datasets Used**: The Pile (validation split)
+- **Models**: Pythia suite, GPT-Neo, GPT-NeoX-20B, BLOOM, OPT, LLaMA
+- **Results**: Tuned lens predictions have lower perplexity and less bias than logit lens. CBE features causally affect model outputs. Hidden state covariance drifts smoothly across layers (representational drift). Detects malicious inputs from prediction trajectories.
+- **Code Available**: Yes — https://github.com/AlignmentResearch/tuned-lens
+- **Relevance**: Essential tool for probing how residual stream predictions evolve under bijective transformation — can we see the model &#34;decode&#34; the cipher through the tuned lens?
+
+### 4. Analysing the Residual Stream Under Knowledge Conflicts
+- **Authors**: Yu Zhao, Xiaotang Du, Giwon Hong et al. (Edinburgh, CUHK, UCL)
+- **Year**: 2024
+- **Source**: arXiv:2410.16090
+- **Key Contribution**: Shows that knowledge conflicts (parametric vs. contextual) are detectable through residual stream probing, with distinct activation patterns
+- **Methodology**: Logistic regression probes on residual stream activations at each layer. Analyzes distributional shape (kurtosis, Hoyer measure, Gini index) of activations.
+- **Datasets Used**: NQSwap, Macnoise, ConflictQA
+- **Results**: Conflict detected at mid-layers (~13 of 32 in Llama3-8B, ~90% accuracy). Knowledge source selection distinguishable at later layers (~17–20) via skewness differences. The combined residual stream (not MLP or attention alone) carries the signal.
+- **Relevance**: Demonstrates that competing information sources create detectable patterns in the residual stream — analogous to our setting where the model must reconcile its trained token semantics with the bijective remapping.
+
+### 5. Towards Automated Circuit Discovery for Mechanistic Interpretability
+- **Authors**: Arthur Conmy, Augustine Mavor-Parker, Aengus Lynch et al.
+- **Year**: 2023
+- **Source**: arXiv:2304.14997
+- **Key Contribution**: ACDC algorithm for automatically finding circuits responsible for specific model behaviors via activation patching
+- **Methodology**: Recursive edge-level importance scoring using activation patching. Identifies subgraphs in transformer computational graphs.
+- **Results**: Recovered 5/5 component types in GPT-2 Small&#39;s Greater-Than circuit, selecting 68 of 32,000 edges.
+- **Code Available**: Yes — https://github.com/ArthurConmy/Automatic-Circuit-Discovery
+- **Relevance**: Methodology for identifying which circuit components are responsible for cipher decoding behavior.
+
+### 6. Attribution Patching Outperforms Automated Circuit Discovery
+- **Authors**: Aaquib Syed, Can Rager, Arthur Conmy
+- **Year**: 2023 (NeurIPS ATTRIB Workshop)
+- **Source**: arXiv:2310.10348
+- **Key Contribution**: Edge Attribution Patching (EAP) — faster alternative to ACDC using gradient-based approximation
+- **Code Available**: Yes — https://github.com/Aaquib111/acdcpp
+- **Relevance**: More efficient tool for circuit discovery that could identify which components handle cipher decoding.
+
+### 7. GPT-4 Is Too Smart To Be Safe: Stealthy Chat with LLMs via Cipher
+- **Authors**: Youliang Yuan, Wenxiang Jiao et al.
+- **Year**: 2023
+- **Source**: arXiv:2308.06463
+- **Key Contribution**: Shows GPT-4 can understand and respond to prompts encoded with various ciphers (Caesar, ASCII, etc.)
+- **Methodology**: Tests multiple cipher types on safety-aligned LLMs. Evaluates cipher understanding without explicit in-context examples.
+- **Results**: GPT-4 successfully interprets Caesar cipher, Morse code, ASCII encoding. Demonstrates LLMs have latent cipher-processing capabilities from pre-training.
+- **Relevance**: Shows that large LLMs already have some cipher-processing ability, suggesting the residual stream may have pathways for handling systematic token transformations.
+
+### 8. Masked Language Modeling and the Distributional Hypothesis: Order Word Matters Pre-training for Little
+- **Authors**: Koustuv Sinha, Robin Jia, Dieuwke Hupkes, Joelle Pineau, Adina Williams, Douwe Kiela (Facebook AI Research)
+- **Year**: 2021
+- **Source**: arXiv:2104.06644
+- **Key Contribution**: MLMs pre-trained on randomly shuffled text still achieve high accuracy on many downstream tasks
+- **Methodology**: Pre-trains RoBERTa on BookWiki with various word order permutations (n-gram shuffles from n=1 to n=4). Tests on GLUE, PAWS, and syntactic probes.
+- **Results**: Models pre-trained on shuffled text retain ~95-98% of natural-order performance on most GLUE tasks. Only CoLA (acceptability) and PAWS (paraphrase detection) show major degradation. Parametric syntactic probes still succeed on shuffled models, suggesting probes may be unreliable.
+- **Relevance**: Demonstrates that distributional co-occurrence statistics (not syntax) drive much of MLM pre-training success. A bijective token remapping preserves co-occurrence structure, suggesting models may adapt more readily than expected.
+
+### 9. Word Order Does Matter (And Shuffled Language Models Know It)
+- **Authors**: Vinit Ravishankar, Mostafa Abdou, Artur Kulmizev et al.
+- **Year**: 2022
+- **Source**: arXiv:2203.10995
+- **Key Contribution**: Challenges Sinha et al. by showing shuffled LMs *do* encode some word order information
+- **Methodology**: Analyzes internal representations of shuffled-text-trained models using probes for syntactic dependency and word order.
+- **Results**: Even models trained on shuffled text learn some positional information through the transformer architecture&#39;s inductive biases.
+- **Relevance**: Shows the transformer architecture itself provides implicit structural cues even when surface order is destroyed — relevant to understanding what happens in the residual stream under bijective remapping.
+
+### 10. Transformer Language Models without Positional Encodings Still Learn Positional Information
+- **Authors**: Adi Haviv, Ori Ram, Ofir Press, Peter Izsak, Omer Levy
+- **Year**: 2022
+- **Source**: arXiv:2203.16634
+- **Key Contribution**: Transformers without positional encodings still learn positional information from causal attention masks
+- **Results**: Models without positional encodings achieve competitive perplexity and learn position from the autoregressive mask alone.
+- **Relevance**: Shows positional information emerges from architecture, not just explicit encodings — the residual stream adapts to structural constraints regardless of explicit position signals.
+
+### 11. UnNatural Language Inference
+- **Authors**: Koustuv Sinha, Prasanna Parthasarathi, Joelle Pineau, Adina Williams
+- **Year**: 2021
+- **Source**: arXiv:2101.00010
+- **Key Contribution**: NLI models are surprisingly robust to unnatural word orders in both premises and hypotheses
+- **Relevance**: Further evidence that NLU models rely on distributional cues over syntactic structure.
+
+### 12. Decipherment-Aware Multilingual Learning in Jointly Trained Language Models
+- **Authors**: Grandee Lee et al. (Singapore University of Technology)
+- **Year**: 2024
+- **Source**: arXiv:2406.07231
+- **Key Contribution**: Training LMs to jointly model cipher/decipherment alongside normal text improves multilingual transfer
+- **Relevance**: Shows that explicit cipher-awareness can be trained into language models, suggesting the residual stream can represent both original and transformed token mappings.
+
+### 13. CipherBank: Exploring the Boundary of LLM Reasoning Capabilities through Cryptography Challenges
+- **Authors**: Yu Li et al.
+- **Year**: 2025
+- **Source**: arXiv:2504.19093
+- **Key Contribution**: Systematic benchmark of LLM reasoning on cryptographic tasks including substitution ciphers
+- **Results**: LLMs struggle with complex ciphers but show capability with simple substitutions.
+- **Relevance**: Establishes baseline expectations for LLM cipher-processing ability.
+
+### 14. Mechanistic Interpretability for AI Safety — A Review
+- **Authors**: Leonard Bereska, Efstratios Gavves (University of Amsterdam)
+- **Year**: 2024
+- **Source**: arXiv:2404.14082
+- **Key Contribution**: Comprehensive review of mechanistic interpretability methods
+- **Relevance**: Survey of tools and techniques applicable to our analysis (activation patching, probing, SAEs, etc.).
+
+### 15. VISIT: Visualizing and Interpreting the Semantic Information Flow of Transformers
+- **Authors**: Shahar Katz, Yonatan Belinkov (Technion)
+- **Year**: 2023
+- **Source**: arXiv:2305.13417
+- **Key Contribution**: Interactive visualization tool for information flow through transformer layers via vocabulary projection
+- **Relevance**: Methodology for visualizing how semantic content transforms through the residual stream.
+
+### 16. Emergent Linear Representations in World Models of Self-Supervised Sequence Models
+- **Authors**: Neel Nanda, Andrew Lee, Martin Wattenberg
+- **Year**: 2023
+- **Source**: arXiv:2309.00941
+- **Key Contribution**: Evidence of linear board-state representations in Othello-playing models
+- **Relevance**: Demonstrates that transformers encode structured world models linearly in the residual stream — a bijective transformation might preserve or disrupt such linear structure.
+
+### 17. Forbidden Facts: An Investigation of Competing Objectives in Llama-2
+- **Authors**: Tony Wang, Miles Wang, Kai Horton et al.
+- **Year**: 2023
+- **Source**: arXiv:2312.08793
+- **Key Contribution**: Analyzes how competing objectives (helpfulness vs. safety) manifest in internal representations
+- **Relevance**: Methodology for studying how conflicting information sources are represented in the residual stream.
+
+### 18. You can remove GPT2&#39;s LayerNorm by fine-tuning
+- **Authors**: Stefan Heimersheim (Apollo Research)
+- **Year**: 2024
+- **Source**: arXiv:2409.13710
+- **Key Contribution**: Shows GPT-2&#39;s LayerNorm can be removed via fine-tuning, revealing that normalization is not essential for learned representations
+- **Relevance**: Understanding what role LayerNorm plays in the residual stream basis — important for analyzing whether bijective transformations interact with normalization layers.
+
+## Common Methodologies
+
+1. **Logit Lens / Tuned Lens probing**: Used in ICL Ciphers, Tuned Lens paper — projects intermediate hidden states to vocabulary space to see evolving predictions. Key tool for our research.
+2. **Sparse Autoencoders (SAEs)**: Used in MLSAE paper — decomposes residual stream into interpretable features. Enables cross-layer analysis.
+3. **Activation/Attribution Patching**: Used in ACDC, EAP — identifies causal role of specific components. Can identify cipher-decoding circuits.
+4. **Linear probing**: Used in Knowledge Conflicts, word order papers — trains classifiers on hidden states. Tests what information the residual stream encodes.
+5. **Controlled permutation experiments**: Used in word order papers — systematically varies input structure while measuring model behavior.
+
+## Standard Baselines
+
+- **Logit Lens** (nostalgebraist, 2020): Direct unembedding of hidden states (baseline for tuned lens)
+- **Random baseline**: Non-bijective cipher (ICL Ciphers) or random word order (Sinha et al.)
+- **Clean / natural order**: Original text without transformation
+- **Frequency-matched controls**: Zipfian frequency matching for cipher tokens (ICL Ciphers)
+
+## Evaluation Metrics
+
+- **Task accuracy**: Primary metric for downstream performance under transformation
+- **Bijective–Non-bijective gap**: Measures genuine learning vs. retrieval (ICL Ciphers)
+- **Perplexity of intermediate predictions**: Tuned lens / logit lens output perplexity per layer
+- **Logit rank difference**: Rank of original vs. substituted token at intermediate layers
+- **Probing accuracy**: Linear probe accuracy for detecting specific information in hidden states
+- **Activation distribution statistics**: Kurtosis, Hoyer measure, Gini index of residual stream
+- **Cosine similarity**: Between hidden states at different layers or under different conditions
+- **FVU (Fraction of Variance Unexplained)**: SAE reconstruction quality
+
+## Gaps and Opportunities
+
+1. **No systematic study of residual stream under bijective token transformation**: ICL Ciphers provides behavioral evidence and basic Logit Lens probing, but does not deeply analyze how the residual stream structure changes. Our research fills this gap.
+2. **Bijective vs. random permutation on representations**: Word order studies focus on downstream task performance, not on internal representation changes under bijective mappings.
+3. **Cross-layer cipher decoding analysis**: The MLSAE approach has not been applied to cipher/transformed inputs to study how features evolve differently.
+4. **Tuned lens under transformation**: No work has applied the tuned lens to compare prediction trajectories between normal and bijectively-transformed inputs.
+5. **Circuit identification for cipher processing**: ACDC/EAP have not been applied to identify which circuits are responsible for cipher decoding.
+
+## Recommendations for Our Experiment
+
+Based on this literature review:
+
+- **Recommended datasets**: SST-2 (primary, well-studied), Amazon Reviews (secondary, larger), HellaSwag and WinoGrande (for generalization testing)
+- **Recommended models**: Pythia suite (various sizes, well-understood, MLSAE pretrained), Llama-3.1-8B (used in ICL Ciphers), GPT-2 Small (simplest for circuit analysis)
+- **Recommended baselines**: (1) Clean text, (2) Bijective cipher, (3) Non-bijective random, (4) Varying shuffle rates
+- **Recommended analysis tools**: Tuned Lens (layer-by-layer prediction tracking), MLSAE (cross-layer feature analysis), Logit Lens (quick baseline), TransformerLens (hook-based activation access)
+- **Recommended metrics**: Logit rank difference (as in ICL Ciphers), tuned lens perplexity trajectory, cosine similarity between clean and ciphered hidden states, SAE feature overlap analysis
+- **Methodological considerations**: Use Zipfian frequency matching for cipher tokens; test at multiple shuffle rates (0.3, 0.5, 0.7); ensure demonstrations contain cipher mappings for test tokens; compare both pre-trained and instruction-tuned models
+
+
+════════════════════════════════════════════════════════════════════════════════
+                          PAPER REQUIREMENTS
+════════════════════════════════════════════════════════════════════════════════
+
+Generate a complete academic paper with the following structure:
+
+1. TITLE
+   - Clear, specific, informative
+   - Should convey main finding or contribution
+
+2. AUTHOR
+   - Use this exact author line in the \author{} block: Ari Holtzman and NeuriCo
+
+3. ABSTRACT (150-250 words)
+   - Problem statement
+   - Approach
+   - Key results
+   - Significance
+
+4. INTRODUCTION
+   - Research problem and motivation
+   - Gap in existing work
+   - Our contribution (be specific)
+   - Paper organization
+
+5. RELATED WORK
+   - Organized by theme/approach
+   - Position our work relative to prior work
+   - Cite papers from literature review
+
+6. METHODOLOGY
+   - Clear description of approach
+   - Experimental setup
+   - Datasets used
+   - Evaluation metrics
+   - Baselines
+
+7. RESULTS
+   - Present results with tables and figures
+   - Statistical analysis
+   - Comparison to baselines
+   - Ablation studies (if applicable)
+
+8. DISCUSSION
+   - Interpretation of results
+   - Limitations
+   - Broader implications
+
+9. CONCLUSION
+   - Summary of contributions
+   - Key findings
+   - Future work
+
+10. REFERENCES
+   - BibTeX format
+   - All cited papers
+
+════════════════════════════════════════════════════════════════════════════════
+                          OUTPUT FORMAT
+════════════════════════════════════════════════════════════════════════════════
+
+Create a MODULAR LaTeX project with the following directory structure:
+
+paper_draft/
+├── main.tex              # Main file that imports all sections
+├── references.bib        # BibTeX references
+├── sections/
+│   ├── abstract.tex      # Abstract content
+│   ├── introduction.tex  # Introduction section
+│   ├── related_work.tex  # Related work section
+│   ├── methodology.tex   # Methodology section
+│   ├── results.tex       # Results section
+│   ├── discussion.tex    # Discussion section
+│   └── conclusion.tex    # Conclusion section
+├── figures/              # Directory for any generated figures
+├── tables/               # Directory for complex standalone tables
+└── appendix/             # Directory for appendix sections (if needed)
+
+INSTRUCTIONS:
+1. First, create the directory structure above (mkdir -p paper_draft/sections paper_draft/figures paper_draft/tables paper_draft/appendix)
+2. Write main.tex using the EXACT preamble for NEURIPS:
+
+   \documentclass{article}
+   \usepackage[final]{neurips_2025}  % NEURIPS style (neurips_2025.sty is in paper_draft/)
+   \usepackage[hidelinks]{hyperref}  % REQUIRED: clickable links
+   \usepackage{booktabs}  % REQUIRED: professional tables
+   \usepackage{graphicx}
+   \usepackage{amsmath,amssymb}
+
+   % Import command files
+   \input{commands/math}
+   \input{commands/general}
+   \input{commands/macros}
+
+   % Use this bibliography style:
+   \bibliographystyle{plainnat}
+
+   \author{Ari Holtzman and NeuriCo}
+
+   - Use \input{sections/...} to include each section
+   - Use \bibliography{references} for references
+3. Write each section file with COMPLETE content (no placeholders)
+4. Each section file should include its \section{} command
+5. Write references.bib with all citations in BibTeX format
+6. After writing all files, compile the paper:
+   cd paper_draft && pdflatex -interaction=nonstopmode main.tex && bibtex main && pdflatex -interaction=nonstopmode main.tex && pdflatex -interaction=nonstopmode main.tex
+
+This modular structure allows humans to easily:
+- Edit individual sections without navigating a large file
+- Track changes per section
+- Reuse sections across different paper versions
+
+════════════════════════════════════════════════════════════════════════════════
+                          QUALITY REQUIREMENTS
+════════════════════════════════════════════════════════════════════════════════
+
+- Academic tone throughout
+- All claims must be supported by data from the experiment report
+- Proper citations using \cite{} commands
+- Clear figures and tables with proper captions
+- NO placeholder text - every section must have real content
+- The paper MUST compile without errors
+- If compilation fails, debug and fix the LaTeX errors
+
+════════════════════════════════════════════════════════════════════════════════
+                          LAB WRITING STYLE
+════════════════════════════════════════════════════════════════════════════════
+
+Follow these lab-specific conventions to match our paper style:
+
+1. LANGUAGE STYLE:
+   - Use active voice: "We propose", "We examine", "We focus on"
+   - Be direct and confident: "Our main question is...", "We hypothesize that..."
+   - State things clearly and simply - prefer plain language over jargon
+   - Use bold questions as paragraph organizers: {\bf what is X?}
+   - Include specific quantitative claims: "8.97% over baseline"
+   - Avoid fancy wording: "utilize" → "use", "facilitate" → "help"
+
+2. INTRODUCTION STRUCTURE:
+   - Engaging hook (get to the point quickly)
+   - Problem importance
+   - Gap identification
+   - Your approach with method figure reference
+   - Quantitative preview of results
+   - Contribution bullets (3-4 items, action verbs)
+
+3. CONTRIBUTION LISTS:
+   \begin{itemize}[leftmargin=*,itemsep=0pt,topsep=0pt]
+       \item We propose...
+       \item We conduct...
+       \item We complement...
+   \end{itemize}
+
+4. MODULAR COMMANDS STRUCTURE:
+   Command templates are pre-copied to paper_draft/commands/:
+   - math.tex: Math notation macros
+   - general.tex: Formatting macros
+   - macros.tex: Project-specific term definitions (customize this for your paper)
+
+   In main.tex, include:
+   \input{commands/math}
+   \input{commands/general}
+   \input{commands/macros}
+
+5. REFERENCE CONVENTIONS:
+   Use reference macros from math.tex:
+   - \figref{fig:name} for "figure 1" (lowercase, in-sentence)
+   - \Figref{fig:name} for "Figure 1" (capitalized, start of sentence)
+   - \secref{sec:name} for "section 2"
+
+6. TEXT FORMATTING:
+   - Use \para{Header text} for bold paragraph headers
+   - Define method/dataset names with \textsc and \xspace:
+     \newcommand{\methodname}{\textsc{MethodName}\xspace}
+
+7. TABLE FORMATTING:
+   - Use booktabs package (no vertical lines)
+   - Use \resizebox{\textwidth}{!}{...} for wide tables
+   - Use @{} to remove padding at table edges
+   - Use \cmidrule(lr){x-y} for sub-headers
+   - Use \textsc{} for dataset/method names in headers
+   - Bold best results with {\bf ...}
+
+8. FIGURE FORMATTING:
+   - Use 0.32\textwidth for 3-column subfigures
+   - Use 0.95\linewidth for full-width figures
+   - Use \input{figures/legend} for shared legends
+   - Write self-contained captions explaining key observations
+
+9. RESULTS PRESENTATION:
+   - Define \increase and \decrease for colored arrows (green up, red down)
+   - Bold best results in tables
+   - Report confidence intervals when available
+
+10. ALGORITHM STYLING:
+    - Use algpseudocode with [noend]
+    - Use \triangleright for comments
+
+11. HYPERLINKS (REQUIRED):
+    - Always use \usepackage[hidelinks]{hyperref} or with colored links
+    - All citations, section refs, figure refs, table refs must be clickable
+    - This is essential for reader navigation
+
+════════════════════════════════════════════════════════════════════════════════
+                          WORKFLOW: REVIEW AND REFLECT
+════════════════════════════════════════════════════════════════════════════════
+
+Before calling finish, you MUST complete these review steps:
+
+1. REVIEW RESOURCES (at the start):
+   - Read .claude/skills/paper-writer/SKILL.md for detailed guidance
+   - Study templates/paper_writing/lab_style_guide.md for style conventions
+   - Browse paper_examples/ for formatting and language patterns
+
+2. SELF-REFLECTION (before finishing):
+   After writing all sections, review your work against these criteria:
+
+   LANGUAGE CHECK:
+   - [ ] Is the writing clear and jargon-free?
+   - [ ] Are claims specific with quantitative support?
+   - [ ] Is active voice used throughout?
+
+   FORMATTING CHECK:
+   - [ ] Does main.tex include \input{commands/math}, \input{commands/general}, \input{commands/macros}?
+   - [ ] Is hyperref package included for clickable references?
+   - [ ] Do tables use booktabs (no vertical lines)?
+   - [ ] Are best results bolded in tables?
+   - [ ] Are figures/tables properly captioned?
+
+   STRUCTURE CHECK:
+   - [ ] Does introduction follow: hook → importance → gap → approach → preview → contributions?
+   - [ ] Are contribution bullets specific with action verbs?
+   - [ ] Does the paper compile without errors?
+
+3. FIX ISSUES:
+   - Address any issues found in the self-reflection
+   - Re-compile and verify the PDF looks correct
+
+Only after completing this review should you consider the paper finished.

@@ -1,0 +1,39 @@
+\section{Discussion}
+\label{sec:discussion}
+
+\subsection{Why the Model Does Not Recover}
+\label{sec:why}
+
+The fundamental issue is that the embedding layer is a \emph{lookup table}, not a learned linear transformation. When token ID $i$ maps to embedding $\embmat[i]$ in clean text, the cipher causes it to map to $\embmat[\perm(i)]$ instead---a completely different semantic embedding. A random permutation of 50{,}000 embeddings creates a highly non-linear distortion in the input space. While a linear cipher (\eg scaling or rotating all embeddings uniformly) could in principle be inverted by later layers, a random permutation scrambles the semantic content in a way that 12--24 transformer layers cannot undo.
+
+The failure of the permutation-adjustment matrix $\permmat$ confirms this. If the cipher's effect propagated linearly through the network---i.e., if each layer's processing of ciphered input were related to its processing of clean input by a fixed linear map---then $\permmat$ would recover the clean representation. Instead, the non-linear interactions in attention (which computes token-token similarities in the permuted embedding space) and MLPs (which apply learned transformations to the wrong semantic features) cause the distortion to propagate in ways that no single linear correction can undo.
+
+\subsection{What the Model \emph{Does} Extract}
+\label{sec:extract}
+
+Despite failing to decode the cipher, the model is not entirely blind to ciphered input. The \pythia results show that ciphered representations consistently sit above the random baseline, and the \gpttwo results show statistically significant differences between cipher and random conditions. We attribute this to three factors:
+
+First, the Zipfian frequency matching in our cipher construction preserves the token frequency distribution. The model's attention patterns and MLP computations are partly calibrated to frequency statistics, so frequency-matched ciphered text produces more ``natural-looking'' activations than uniformly random tokens.
+
+Second, positional structure survives the cipher. The causal attention mask, positional encodings, and local context windows operate identically on ciphered and clean text. As \citet{haviv2022positional} show, positional information can be extracted from architecture alone.
+
+Third, some local co-occurrence patterns may survive the bijective mapping. If tokens $a$ and $b$ frequently co-occur in the training data, and $\perm(a)$ and $\perm(b)$ also happen to co-occur (which is more likely with frequency-matched permutations), the model can extract partial distributional signal.
+
+\subsection{The Architectural Convergence Confound}
+\label{sec:confound}
+
+Our inter-text similarity analysis (\tabref{tab:intertext}) reveals an important methodological caution. In \gpttwo, \emph{any} two inputs---regardless of content---produce residual stream states with $>$0.96 cosine similarity at every layer. This means cosine similarity between hidden states is a poor measure of whether two inputs are being ``processed similarly'' in any meaningful sense.
+
+This convergence is driven primarily by \layernorm, which constrains the norm and centering of representations at each layer. The residual connections further accumulate a ``default'' activation pattern that dominates the direction of the hidden state. Researchers using cosine similarity to compare model representations---a common practice in probing studies---should control for this baseline convergence, particularly in models with pre-\layernorm architectures like GPT-2.
+
+\subsection{Relation to In-Context Cipher Learning}
+\label{sec:icl}
+
+Our zero-shot results complement the findings of \citet{fang2025iclciphers}, who show that models \emph{can} learn ciphers from in-context demonstrations. Together, these results paint a clear picture: the transformer architecture has the \emph{capacity} to process bijective mappings (as demonstrated by ICL success), but this capacity requires explicit examples to activate. The model cannot induce the mapping from ciphered text alone because the embedding lookup creates a distribution over semantic features that bears no recoverable relationship to the original text's semantics.
+
+This has practical implications for cipher-based jailbreaks~\citep{yuan2023gpt4cipher}. Simple substitution ciphers applied without any key or examples in the prompt should be ineffective at eliciting specific model behaviors, because the model cannot decode the cipher. The risk arises when attackers include cipher demonstrations or when the cipher is simple enough (\eg ROT-13) that the model has seen examples during pre-training.
+
+\subsection{Limitations}
+\label{sec:limitations}
+
+Our study has several limitations. First, we test only the \emph{zero-shot} setting. The with-demonstrations setting, where cipher examples are provided in context, likely yields qualitatively different results, as shown by \citet{fang2025iclciphers}. Second, our texts are short ($\sim$30 tokens). Longer sequences might provide more distributional signal, though our context-length analysis showed no recovery trend within 512 tokens. Third, we study only two relatively small models (\gpttwo with 117M parameters, \pythia with 410M). Larger models may exhibit different behavior due to greater capacity for in-context learning. Fourth, our analysis uses position-averaged hidden states, which may obscure per-position recovery patterns. Fifth, we use only autoregressive models; bidirectional architectures like BERT may respond differently to bijective permutations due to their different pre-training objectives.

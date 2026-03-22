@@ -1,0 +1,27 @@
+{
+  "success": true,
+  "stages": {
+    "resource_finder": {
+      "success": true,
+      "completion_marker": "/workspaces/residual-stream-biject-claude/.resource_finder_complete",
+      "outputs": {
+        "literature_review": "/workspaces/residual-stream-biject-claude/literature_review.md",
+        "resources_catalog": "/workspaces/residual-stream-biject-claude/resources.md",
+        "papers_dir": "/workspaces/residual-stream-biject-claude/papers",
+        "datasets_dir": "/workspaces/residual-stream-biject-claude/datasets",
+        "code_dir": "/workspaces/residual-stream-biject-claude/code"
+      },
+      "log_file": "/workspaces/residual-stream-biject-claude/logs/resource_finder_claude.log",
+      "transcript_file": "/workspaces/residual-stream-biject-claude/logs/resource_finder_claude_transcript.jsonl",
+      "elapsed_time": 1682.6090660095215
+    },
+    "experiment_runner": {
+      "success": true,
+      "return_code": 0,
+      "elapsed_time": 2305.8249282836914,
+      "log_file": "/workspaces/residual-stream-biject-claude/logs/execution_claude.log",
+      "transcript_file": "/workspaces/residual-stream-biject-claude/logs/execution_claude_transcript.jsonl"
+    }
+  },
+  "work_dir": "/workspaces/residual-stream-biject-claude"
+}
