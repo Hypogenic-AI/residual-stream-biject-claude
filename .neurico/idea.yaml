@@ -1,0 +1,30 @@
+idea:
+  title: The Residual Stream After Bijective Token Transformation
+  domain: nlp
+  hypothesis: 'If a bijective function is applied to shuffle token-surface form mappings
+    and the transformed text is fed into a pretrained language model, the model will
+    initially fail to interpret the input but may eventually adapt its internal representations
+    to the new code. The research question is whether, after sufficient exposure,
+    the model''s residual stream will resemble its normal state modulo the shuffle,
+    or if the model will fail to recover due to unmapped embeddings.
+
+    '
+  background:
+    description: 'Let''s say we have a bijection f from V -> V, that essentially shuffles
+      which tokens represent which surface forms. If we feed this into a normal LM,
+      it will likely have no idea what''s going on for the first few words, helplessly
+      trying to interpret them normally. Then it will likely represent the shuffle
+      as it attunes to the code. After a lot of text, will the residual stream look
+      kind of normal, modulo the shuffle? Or will the model never recover because
+      its embeddings don''t get remapped properly?
+
+      '
+  metadata:
+    author: Ari Holtzman
+    source: IdeaHub
+    source_url: https://hypogenic.ai/ideahub/idea/cQGkntqDtSeMPCouGPZB
+    idea_id: the_residual_stream_after_bije_20260322_123506_188363f1
+    created_at: '2026-03-22T12:35:06.235998'
+    status: submitted
+    github_repo_name: residual-stream-biject-claude
+    github_repo_url: https://github.com/Hypogenic-AI/residual-stream-biject-claude
